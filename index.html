@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Evolução - Não Contraído e Contraído</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f6fa; margin: 0; padding: 30px; }
+        .container { max-width: 1100px; margin: auto; background: #fff; border-radius: 16px; box-shadow: 0 8px 32px #0001; padding: 32px; }
+        h1 { text-align: center; margin-bottom: 32px; }
+        .charts { 
+            display: flex; 
+            flex-direction: column; /* <-- adicione esta linha */
+            flex-wrap: wrap; 
+            gap: 32px; 
+            justify-content: center; 
+        }
+        .chart-block { flex: 1 1 450px; min-width: 350px; background: #f8f9fa; border-radius: 12px; padding: 24px; }
+        .legend { margin: 16px 0 0 0; display: flex; flex-wrap: wrap; gap: 16px; }
+        .legend span { display: flex; align-items: center; gap: 6px; font-size: 0.95em; }
+        .legend .color { width: 16px; height: 16px; border-radius: 50%; display: inline-block; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Evolução dos Participantes</h1>
+    <div id="checkboxes" style="margin-bottom:24px; display:flex; flex-wrap:wrap; gap:16px;">
+        <!-- Os checkboxes serão inseridos via JS -->
+    </div>
+    <div class="charts">
+        <div class="chart-block">
+            <h2>Não Contraído</h2>
+            <canvas id="naoContraidoChart"></canvas>
+            <div class="legend" id="legend-naoContraido"></div> <!-- legenda individual -->
+        </div>
+        <div class="chart-block">
+            <h2>Contraído</h2>
+            <canvas id="contraidoChart"></canvas>
+            <div class="legend" id="legend-contraido"></div> <!-- legenda individual -->
+        </div>
+    </div>
+    <!-- Remova ou mantenha a legenda geral se quiser -->
+    <!-- <div class="legend" id="legend"></div> -->
+</div>
+<script>
+
+function parseCSV(text) {
+    const lines = text.trim().split('\n');
+    const dataLines = lines.slice(1);
+    return dataLines.map(line => {
+        const parts = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') inQuotes = !inQuotes;
+            else if (char === ',' && !inQuotes) { parts.push(current.trim()); current = ''; }
+            else current += char;
+        }
+        parts.push(current.trim());
+        return {
+            nome: parts[0],
+            data: parts[1],
+            naoContraido: parseFloat(parts[2].replace(',', '.')),
+            contraido: parseFloat(parts[3].replace(',', '.'))
+        };
+    });
+}
+
+const colors = [
+    '#3b5bdb', '#e64980', '#228be6', '#51cf66', '#fab005',
+    '#ff922b', '#845ef7', '#20c997', '#868e96', '#fa5252'
+];
+
+function buildDatasets(field, participantes, datas, allData, todosParticipantes) {
+    return participantes.map((nome) => {
+        const idx = todosParticipantes.indexOf(nome); // <-- usa o índice original
+        const pessoaData = allData.filter(d => d.nome === nome);
+        const dataArr = datas.map(data => {
+            const reg = pessoaData.find(d => d.data === data);
+            return reg ? reg[field] : null;
+        });
+        return {
+            label: nome,
+            data: dataArr,
+            borderColor: colors[idx % colors.length],
+            backgroundColor: colors[idx % colors.length] + '33',
+            spanGaps: true,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            borderWidth: 3,
+            fill: false
+        };
+    });
+}
+
+function makeChart(canvasId, field, title, participantes, datas, allData, todosParticipantes) {
+    return new Chart(document.getElementById(canvasId).getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: datas,
+            datasets: buildDatasets(field, participantes, datas, allData, todosParticipantes)
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: false },
+                title: { display: false }
+            },
+            scales: {
+                y: { beginAtZero: false, title: { display: true, text: 'cm' } },
+                x: { title: { display: true, text: 'Data' } }
+            },
+            interaction: { mode: 'nearest', axis: 'x', intersect: false }
+        }
+    });
+}
+
+let naoContraidoChartInstance = null;
+let contraidoChartInstance = null;
+
+function updateCharts(participantesSelecionados, participantes, datas, allData) {
+    if (naoContraidoChartInstance) naoContraidoChartInstance.destroy();
+    if (contraidoChartInstance) contraidoChartInstance.destroy();
+
+    naoContraidoChartInstance = makeChart('naoContraidoChart', 'naoContraido', 'Não Contraído', participantesSelecionados, datas, allData, participantes);
+    contraidoChartInstance = makeChart('contraidoChart', 'contraido', 'Contraído', participantesSelecionados, datas, allData, participantes);
+
+    // Legenda para cada gráfico
+    document.getElementById('legend-naoContraido').innerHTML = participantesSelecionados.map(nome => {
+        const idx = participantes.indexOf(nome);
+        return `<span><span class="color" style="background:${colors[idx % colors.length]}"></span>${nome}</span>`;
+    }).join('');
+    document.getElementById('legend-contraido').innerHTML = participantesSelecionados.map(nome => {
+        const idx = participantes.indexOf(nome);
+        return `<span><span class="color" style="background:${colors[idx % colors.length]}"></span>${nome}</span>`;
+    }).join('');
+}
+
+window.onload = function() {
+    fetch('registros.csv')
+        .then(response => response.text())
+        .then(csvData => {
+            const allData = parseCSV(csvData);
+            const participantes = [...new Set(allData.map(d => d.nome))];
+            const datas = [...new Set(allData.map(d => d.data))].sort((a, b) => {
+                const [d1, m1, y1] = a.split('/'); const [d2, m2, y2] = b.split('/');
+                return new Date(y1, m1-1, d1) - new Date(y2, m2-1, d2);
+            });
+
+            // Cria checkboxes
+            const checkboxesDiv = document.getElementById('checkboxes');
+            // Checkbox "Todos"
+            checkboxesDiv.innerHTML = `
+                <label>
+                    <input type="checkbox" id="selectAll" checked style="accent-color:#222"> <strong>Todos</strong>
+                </label>
+            ` + participantes.map((nome, idx) =>
+                `<label><input type="checkbox" class="cb-part" checked data-nome="${nome}" style="accent-color:${colors[idx % colors.length]}"> ${nome}</label>`
+            ).join('');
+
+            const selectAll = checkboxesDiv.querySelector('#selectAll');
+            const partCheckboxes = () => Array.from(checkboxesDiv.querySelectorAll('.cb-part'));
+
+            function getSelecionados() {
+                return partCheckboxes().filter(cb => cb.checked).map(cb => cb.getAttribute('data-nome'));
+            }
+
+            // Sincroniza "Todos" com os individuais
+            selectAll.addEventListener('change', () => {
+                partCheckboxes().forEach(cb => cb.checked = selectAll.checked);
+                updateCharts(getSelecionados(), participantes, datas, allData);
+            });
+
+            checkboxesDiv.addEventListener('change', (e) => {
+                if (e.target.classList.contains('cb-part')) {
+                    const allChecked = partCheckboxes().every(cb => cb.checked);
+                    selectAll.checked = allChecked;
+                    updateCharts(getSelecionados(), participantes, datas, allData);
+                }
+            });
+
+            // Inicializa gráficos com todos selecionados
+            updateCharts(participantes, participantes, datas, allData);
+        });
+};
+</script>
+</body>
+</html>
